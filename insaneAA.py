@@ -5,7 +5,7 @@ import descale as dsc
 
 # InsaneAA Anti-Aliasing Script (VS port) v0.1 (27.09.2017)
 # 
-# Original idea by tonik & toph, edited and ported by DJATOM.
+# Original idea by tonik & tophf, edited and ported by DJATOM.
 # Use this script to fix ugly upscaled anime BDs.
 # 
 # Processing chain: 
