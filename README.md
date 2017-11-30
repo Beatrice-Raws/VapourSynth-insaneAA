@@ -23,9 +23,10 @@ Use this script to fix ugly upscaled anime BDs.
 # Basic usage:
 ```
 import insaneAA
-insaneAA.insaneAA(clip, eedi3Cl=False, nnedi3Cl=True, descale_str=0.3, kernel='bilinear', descale_h=720, descale_w=None, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, outputMode=0)
+insaneAA.insaneAA(clip, eedi3Mode=dict(first=dict(mode='cpu', device=0), second=dict(mode='cpu', device=0)), nnedi3Mode=dict(first=dict(mode='opencl', device=0), second=dict(mode='znedi3', device=0)), descale_str=0.3, kernel='bilinear', descale_h=720, descale_w=None, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, outputMode=0)
 ```
- - eedi3Cl/nnedi3Cl: switches between CL/CPU versions
+ - eedi3Mode: defaults - dict(first=dict(mode='cpu', device=-1), second=dict(mode='cpu', device=-1)). 'first' refers to 1st instance of filter call, 'second' - for 2nd call. Each call should have at least 'mode' key. You can specify 'device' if you need to use non-default GPU card. Valid values for 'mode' key: 'cpu', 'opencl'.
+ - nnedi3Mode: defaults - dict(first=dict(mode='cpu', device=-1), second=dict(mode='cpu', device=-1)). 'first' refers to 1st instance of filter call, 'second' - for 2nd call. Each call should have at least 'mode' key. You can specify 'device' if you need to use non-default GPU card. Valid values for 'mode' key: 'cpu', 'znedi3', 'opencl'.
  - descale_str: strengh of mixing between descaled clip and Spline36 clip (for AA purposes). More strengh means more haloes, keep that in mind.
  - kernel: descaling kernel. Use getnative.py for determining native resolution and try various kernels to find the best suitable.
  - descale_h/descale_w: once you know native resolution, set descale_h. descale_w is almost useless, script will guess descaling width automaticaly. But you can set it, lol.
