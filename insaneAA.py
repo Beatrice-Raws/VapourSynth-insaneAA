@@ -140,8 +140,6 @@ def rescale(clip, fasterAA=False, eedi3Mode='cpu', eedi3Device=-1, eedi3Opt=0, n
         return core.resize.Spline36(clip, dx, dy, src_left=-0.5, src_top=-0.5, src_width=ux, src_height=uy)
 
 def eedi3_instance(clip, eedi3Mode='cpu', eedi3Device=-1, eedi3Opt=0, nnedi3Mode='nnedi3', nnedi3Device=-1, nnedi3Opt=0, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, nrad=2, mdis=20):
-    print(nnedi3Mode)
-    print(nnedi3Opt)
     if eedi3Mode == 'opencl':
         return core.eedi3m.EEDI3CL(clip, field=1, dh=True, alpha=alpha, beta=beta, gamma=gamma, vcheck=3, nrad=nrad, mdis=mdis, sclip=nnedi3_superclip(clip, nnedi3Mode, nnedi3Device, nnedi3Opt, pscrn), device=nnedi3Device, opt=eedi3Opt)
     elif eedi3Mode == 'cpu':
