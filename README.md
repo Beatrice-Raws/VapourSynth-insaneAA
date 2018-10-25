@@ -13,12 +13,11 @@ Use this script to fix ugly upscaled anime BDs.
    7) combine merged clip with color planes. 
  
 # Prerequisites:
-  - [eedi3/eedi3cl](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3). You should build it from source, r1 is not working due to wrong namespace.
+  - [eedi3/eedi3cl](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3).
   - [nnedi3](https://github.com/dubhater/vapoursynth-nnedi3).
+  - [znedi3](https://github.com/sekrit-twc/znedi3).
   - [nnedi3cl](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL).
   - [descale](https://github.com/Irrational-Encoding-Wizardry/vapoursynth-descale).
-  - [havsfunc](https://github.com/HomeOfVapourSynthEvolution/havsfunc).
-  - [mvsfunc](https://github.com/HomeOfVapourSynthEvolution/mvsfunc).
  
 # Basic usage:
 ```python3
