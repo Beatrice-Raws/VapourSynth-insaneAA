@@ -33,8 +33,10 @@ Basic usage:
         fasterAA: slightly different upscaling routine, proposed by ZASTIN. Sometimes might produce worse results. But indeed it's faster, yeah.
         eedi3Mode: string with mode or tuple with two strings representing modes for first and second calls of eedi3.
         eedi3Device: integer or tuple with two integers representing device IDs for first and second calls of eedi3.
+        eedi3Opt: Controls eedi3 opt related options. You can pass single value or tuple with two values for separated opt on the instances. Passed value should be int type.
         nnedi3Mode: string with mode or tuple with two strings representing modes for first and second calls of nnedi3.
         nnedi3Device: integer or tuple with two integers representing device IDs for first and second calls of nnedi3.
+        nnedi3Opt: Controls nnedi3 opt related options. You can pass single value or tuple with two values for separated opt on the instances. znedi3 expects string, classic nnedi3 - int (0 - use opt, 1 - disable, use C functions), nnedi3cl ignores passed value. 
         descale_str: strength of mixing between descaled clip and Spline36 clip (for AA purposes). More strengh means more haloes, keep that in mind.
         kernel: descaling kernel. Use getnative.py for determining native resolution and try various kernels to find the best suitable.
         descale_height/descale_width: once you know native resolution, set descale_height. descale_width is almost useless, script will guess descaling width automatically. But you can set it, lol.
@@ -44,13 +46,13 @@ Basic usage:
         gamma: eedi3's gamma.
         nrad: eedi3's nrad.
         mdis: eedi3's mdis.
-        eedi3Opt: Controls eedi3 opt related options. You can pass single value or tuple with two values for separated opt on the instances. Passed value should be int type.
-        nnedi3Opt: Controls nnedi3 opt related options. You can pass single value or tuple with two values for separated opt on the instances. znedi3 expects string, classic nnedi3 - int, nnedi3cl ignores passed value. 
         outputMode: 1 - only rescale (GRAY), 2 - linemasked rescale (GRAY), 0 - linemasked rescale + untouched colors. This option useful for, say, processing all clip into lossless file and masking high resolution details later or for importing filtered luma into avisynth.
         inputMode: 1 - expect outputMode=1 like GRAY csp upscale. Anything else will skip applying lines mask.
     Please do something with FullHD details! At least mask them or somehow exclude from processing.
 
 Changelog:
+    version 0.6b
+        Fix: nnedi3 mode used slow C routines by default (behaviour differs from classic avisynth option).
     version 0.6
         New: parameters eedi3Opt/nnedi3Opt. Controls eedi3/nnedi3 opt related options.
         New: expose nrad/mdis parameters from eedi3. It's possible to improve speed with nearly the same results (say, use mdis=12 for 720p rescales).
@@ -85,7 +87,7 @@ def insaneAA(clip, externalAA=None, externalMask=None, fasterAA=False, eedi3Mode
     gray_clip = core.std.ShufflePlanes(clip, 0, GRAY)
     if not isinstance(externalAA, VideoNode):
         descale_clip = revert_upscale(gray_clip, descale_str, kernel, descale_width, descale_height)
-        upscale = rescale(descale_clip, fasterAA, eedi3Mode, eedi3Device, nnedi3Mode, nnedi3Device, width, height, pscrn, alpha, beta, gamma, nrad, mdis, eedi3Opt, nnedi3Opt)
+        upscale = rescale(descale_clip, fasterAA, eedi3Mode, eedi3Device, eedi3Opt, nnedi3Mode, nnedi3Device, nnedi3Opt, width, height, pscrn, alpha, beta, gamma, nrad, mdis)
     else:
         upscale = externalAA
     if outputMode == 1:
@@ -110,7 +112,7 @@ def revert_upscale(clip, descale_str=0.3, kernel='bilinear', descale_width=None,
     descale_aa = core.resize.Spline36(clip, descale_width, descale_height)
     return core.std.Merge(clipb=descale_natural, clipa=descale_aa, weight=descale_str)
 
-def rescale(clip, fasterAA=False, eedi3Mode='cpu', eedi3Device=-1, nnedi3Mode='nnedi3', nnedi3Device=-1, dx=None, dy=None, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, nrad=2, mdis=20, eedi3Opt=0, nnedi3Opt=0):
+def rescale(clip, fasterAA=False, eedi3Mode='cpu', eedi3Device=-1, eedi3Opt=0, nnedi3Mode='nnedi3', nnedi3Device=-1, nnedi3Opt=0, dx=None, dy=None, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, nrad=2, mdis=20):
     ux = clip.width * 2
     uy = clip.height * 2
     if dx is None:
@@ -125,27 +127,31 @@ def rescale(clip, fasterAA=False, eedi3Mode='cpu', eedi3Device=-1, nnedi3Mode='n
     nnedi3Opt1,       nnedi3Opt2 = validateInput(nnedi3Opt, (int, str), 'insaneAA: nnedi3Opt should be integer with valid eedi3/eedi3cl opt value or tuple with 2 integers providing valid values.')
     if fasterAA:
         clip = core.std.Transpose(clip)
-        clip = eedi3_instance(clip, eedi3Mode1, eedi3Device1, nnedi3Mode1, nnedi3Device1, pscrn, alpha, beta, gamma, nrad, mdis, eedi3Opt1, nnedi3Opt1)
+        clip = eedi3_instance(clip, eedi3Mode1, eedi3Device1, eedi3Opt1, nnedi3Mode1, nnedi3Device1, nnedi3Opt1, pscrn, alpha, beta, gamma, nrad, mdis)
         clip = core.resize.Spline36(clip, height=dx, src_top=-0.5, src_height=ux)
         clip = core.std.Transpose(clip)
-        clip = eedi3_instance(clip, eedi3Mode2, eedi3Device2, nnedi3Mode2, nnedi3Device2, pscrn, alpha, beta, gamma, nrad, mdis, eedi3Opt2, nnedi3Opt2)
+        clip = eedi3_instance(clip, eedi3Mode2, eedi3Device2, eedi3Opt2, nnedi3Mode2, nnedi3Device2, nnedi3Opt2, pscrn, alpha, beta, gamma, nrad, mdis)
         return core.resize.Spline36(clip, height=dy, src_top=-0.5, src_height=uy)
     else:
-        clip = eedi3_instance(clip, eedi3Mode1, eedi3Device1, nnedi3Mode1, nnedi3Device1, pscrn, alpha, beta, gamma, nrad, mdis, eedi3Opt1, nnedi3Opt1)
+        clip = eedi3_instance(clip, eedi3Mode1, eedi3Device1, eedi3Opt1, nnedi3Mode1, nnedi3Device1, nnedi3Opt1, pscrn, alpha, beta, gamma, nrad, mdis)
         clip = core.std.Transpose(clip)
-        clip = eedi3_instance(clip, eedi3Mode2, eedi3Device2, nnedi3Mode2, nnedi3Device2, pscrn, alpha, beta, gamma, nrad, mdis, eedi3Opt2, nnedi3Opt2)
+        clip = eedi3_instance(clip, eedi3Mode2, eedi3Device2, eedi3Opt2, nnedi3Mode2, nnedi3Device2, nnedi3Opt2, pscrn, alpha, beta, gamma, nrad, mdis)
         clip = core.std.Transpose(clip)
         return core.resize.Spline36(clip, dx, dy, src_left=-0.5, src_top=-0.5, src_width=ux, src_height=uy)
 
-def eedi3_instance(c, eedi3Mode='cpu', eedi3Device=-1, nnedi3Mode='nnedi3', nnedi3Device=-1, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, nrad=2, mdis=20, eedi3Opt=0, nnedi3Opt=0):
+def eedi3_instance(clip, eedi3Mode='cpu', eedi3Device=-1, eedi3Opt=0, nnedi3Mode='nnedi3', nnedi3Device=-1, nnedi3Opt=0, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, nrad=2, mdis=20):
+    print(nnedi3Mode)
+    print(nnedi3Opt)
     if eedi3Mode == 'opencl':
-        return core.eedi3m.EEDI3CL(c, field=1, dh=True, alpha=alpha, beta=beta, gamma=gamma, vcheck=3, nrad=nrad, mdis=mdis, sclip=nnedi3_superclip(c, nnedi3Mode, nnedi3Device, pscrn, nnedi3Opt), device=nnedi3Device, opt=eedi3Opt)
+        return core.eedi3m.EEDI3CL(clip, field=1, dh=True, alpha=alpha, beta=beta, gamma=gamma, vcheck=3, nrad=nrad, mdis=mdis, sclip=nnedi3_superclip(clip, nnedi3Mode, nnedi3Device, nnedi3Opt, pscrn), device=nnedi3Device, opt=eedi3Opt)
+    elif eedi3Mode == 'cpu':
+        return core.eedi3m.EEDI3(clip, field=1, dh=True, alpha=alpha, beta=beta, gamma=gamma, vcheck=3, nrad=nrad, mdis=mdis, sclip=nnedi3_superclip(clip, nnedi3Mode, nnedi3Device, nnedi3Opt, pscrn), opt=eedi3Opt)
     else:
-        return core.eedi3m.EEDI3(c, field=1, dh=True, alpha=alpha, beta=beta, gamma=gamma, vcheck=3, nrad=nrad, mdis=mdis, sclip=nnedi3_superclip(c, nnedi3Mode, nnedi3Device, pscrn, nnedi3Opt), opt=eedi3Opt)
+        raise ValueError('insaneAA: invalid eedi3 mode.')
 
-def nnedi3_superclip(c, nnedi3Mode='nnedi3', nnedi3Device=-1, pscrn=1, opt=0):
+def nnedi3_superclip(clip, nnedi3Mode='nnedi3', nnedi3Device=-1, opt=0, pscrn=1):
     if nnedi3Mode == 'opencl':
-        return core.nnedi3cl.NNEDI3CL(c, field=1, dh=True, nsize=0, nns=4, pscrn=pscrn, device=nnedi3Device)
+        return core.nnedi3cl.NNEDI3CL(clip, field=1, dh=True, nsize=0, nns=4, pscrn=pscrn, device=nnedi3Device)
     elif nnedi3Mode == 'znedi3':
         if opt == 0:
             _opt = True
@@ -156,9 +162,18 @@ def nnedi3_superclip(c, nnedi3Mode='nnedi3', nnedi3Device=-1, pscrn=1, opt=0):
         else:
             _opt = True
             _x_cpu = str(opt)
-        return core.znedi3.nnedi3(c, field=1, dh=True, nsize=0, nns=4, pscrn=pscrn, opt=_opt, x_cpu=_x_cpu)
+        return core.znedi3.nnedi3(clip, field=1, dh=True, nsize=0, nns=4, pscrn=pscrn, opt=_opt, x_cpu=_x_cpu)
+    elif nnedi3Mode == 'nnedi3':
+        # swap 0 and 1 for nnedi3 to behave like a classic avisynth: 0 - use best available functions and 1 - use C functions
+        if opt == 0:
+            _opt = 1
+        elif opt == 1:
+            _opt = 0
+        else:
+            raise ValueError('insaneAA: invalid nnedi3 opt.')
+        return core.nnedi3.nnedi3(clip, field=1, dh=True, nsize=0, nns=4, pscrn=pscrn, opt=_opt)
     else:
-        return core.nnedi3.nnedi3(c, field=1, dh=True, nsize=0, nns=4, pscrn=pscrn, opt=opt)
+        raise ValueError('insaneAA: invalid nnedi3 mode.')
 
 def validateInput(var, varType, errorString):
     if isinstance(var, varType):
