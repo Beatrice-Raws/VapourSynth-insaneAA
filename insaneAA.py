@@ -1,162 +1,175 @@
-import vapoursynth as vs
-import havsfunc as haf
-import mvsfunc as mvf
-import descale as dsc
+from vapoursynth import core, VideoNode, GRAY, YUV
+import descale
 
-core = vs.core
+__version__ = 0.6
 
-# InsaneAA Anti-Aliasing Script (VS port) v0.3 (30.11.2017)
-# 
-# Original idea by tonik & tophf, edited and ported by DJATOM.
-# Use this script to fix ugly upscaled anime BDs.
-# 
-# Processing chain: 
-#   1) extract luma from clip;
-#   2) apply Descale to it;
-#   3) resize luma with Spline36 for smooth edges;
-#   4) merge "smooth" clip with Descale clip according to descale_str;
-#   5) re-upscale it back to 1080p (or clip's original resolution) using eedi3+nnedi3 method;
-#   6) merge rescaled clip with source clip using lines mask. This should prevent noise and textures distortion;
-#   7) combine merged clip with color planes. 
-# 
-# Prerequisites:
-#   eedi3/eedi3cl: https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3 (you should build it from source, r1 is not working due to wrong namespace)
-#   nnedi3: https://github.com/dubhater/vapoursynth-nnedi3
-#   nnedi3cl: https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL
-#   descale: https://github.com/Irrational-Encoding-Wizardry/vapoursynth-descale
-#   havsfunc: https://github.com/HomeOfVapourSynthEvolution/havsfunc
-#   mvsfunc: https://github.com/HomeOfVapourSynthEvolution/mvsfunc
-# 
-# Basic usage:
-#   import insaneAA
-#   insaneAA.insaneAA(clip, eedi3Cl1=False, eedi3Cl2=False, nnedi3Cl=False, descale_str=0.3, kernel='bilinear', descale_h=720, descale_w=None, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, outputMode=0)
-#     eedi3Mode: defaults - dict(first=dict(mode='cpu', device=-1), second=dict(mode='cpu', device=-1)). 'first' refers to 1st instance of filter call, 'second' - for 2nd call. 
-#       Each call should have at least 'mode' key. You can specify 'device' if you need to use non-default GPU card.
-#       Valid values for 'mode' key: 'cpu', 'opencl'.
-#     nnedi3Mode: defaults - dict(first=dict(mode='cpu', device=-1), second=dict(mode='cpu', device=-1)). 'first' refers to 1st instance of filter call, 'second' - for 2nd call. 
-#       Each call should have at least 'mode' key. You can specify 'device' if you need to use non-default GPU card.
-#       Valid values for 'mode' key: 'cpu', 'znedi3', 'opencl'.
-#     descale_str: strengh of mixing between descaled clip and Spline36 clip (for AA purposes). More strengh means more haloes, keep that in mind.
-#     kernel: descaling kernel. Use getnative.py for determining native resolution and try various kernels to find the best suitable.
-#     descale_h/descale_w: once you know native resolution, set descale_h. descale_w is almost useless, script will guess descaling width automaticaly. But you can set it, lol.
-#     pscrn: nnedi3's prescreener for faster operation. Does nothing if nnedi3Cl is True.
-#     alpha: eedi3's alpha.
-#     beta: eedi3's beta.
-#     gamma: eedi3's gamma.
-#     outputMode: 1 - only rescale (GRAY), 2 - linemasked rescale (GRAY), 0 - linemasked rescale + untouched colors. This option useful for, say, processing all clip into lossless file and masking high resolution details later or for importing filtered luma into avisynth.
-#   Please do something with FullHD details! At least mask them or somehow exclude from processing.
-# 
-# Changelog:
-#   version 0.3
-#     Major change in eedi3/nnedi3 options: use dict(first=dict(mode='cpu', device=-1), second=dict(mode='cpu', device=-1)) for eedi3Mode/nnedi3Mode. More in usage.
-#     Now you can pick znedi3 for sclip. The fastest nnedi3 option on my observation, but in complex scripts it might be better to use opencl nnedi3 for saving cpu cycles for other stuff.
-#   version 0.2
-#     Turn off OpenCL plugins by default.
-#     Split eedi3Cl for every eedi3 call, may improve performance on cheap GPUs.
-#   version 0.1
-#     Initial release.
+"""
+InsaneAA Anti-Aliasing Script (VS port) v0.6 (25.10.2018)
 
-def insaneAA(c, eedi3Mode=None, nnedi3Mode=None, descale_str=0.3, kernel='bilinear', descale_h=720, descale_w=None, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, outputMode=0):
-    if not isinstance(c, vs.VideoNode):
-        raise TypeError('insaneAA: This is not a clip')
+Original idea by tonik & tophf, edited and ported by DJATOM.
+Use this script to fix ugly upscaled anime BDs.
 
-    if not all (k in eedi3Mode for k in ('first', 'second')):
-        if all (k in eedi3Mode for k in ('mode', 'device')):
-            eedi3Mode = dict(first=dict(mode=eedi3Mode['mode'], device=eedi3Mode['device']), second=dict(mode=eedi3Mode['mode'], device=eedi3Mode['device']))
-        elif 'mode' in eedi3Mode:
-            eedi3Mode = dict(first=dict(mode=eedi3Mode['mode'], device=-1), second=dict(mode=eedi3Mode['mode'], device=-1))
-        else:
-            eedi3Mode = dict(first=dict(mode='cpu', device=-1), second=dict(mode='cpu', device=-1))
-    elif not all (k in eedi3Mode['first'] for k in ('mode', 'device')):
-        if 'device' not in eedi3Mode['first']:
-            eedi3Mode['first']['device'] = -1
-        elif 'mode' not in eedi3Mode['first']:
-            raise ValueError('insaneAA: first instance of eedi3Mode lacks "mode" key')
-    elif not all (k in eedi3Mode['second'] for k in ('mode', 'device')):
-        if 'device' not in eedi3Mode['first']:
-            eedi3Mode['second']['device'] = -1
-        elif 'mode' not in eedi3Mode['second']:
-            raise ValueError('insaneAA: second instance of eedi3Mode lacks "mode" key')
+Processing chain: 
+    1) extract luma from clip;
+    2) apply Descale to it;
+    3) resize luma with Spline36 for smooth edges;
+    4) merge "smooth" clip with Descale clip according to descale_str;
+    5) re-upscale it back to 1080p (or clip's original resolution) using eedi3+nnedi3 method;
+    6) merge rescaled clip with source clip using lines mask. This should prevent noise and textures distortion;
+    7) combine merged clip with color planes. 
 
-    if not all (k in nnedi3Mode for k in ('first', 'second')):
-        if all (k in nnedi3Mode for k in ('mode', 'device')):
-            nnedi3Mode = dict(first=dict(mode=nnedi3Mode['mode'], device=nnedi3Mode['device']), second=dict(mode=nnedi3Mode['mode'], device=nnedi3Mode['device']))
-        elif 'mode' in nnedi3Mode:
-            nnedi3Mode = dict(first=dict(mode=nnedi3Mode['mode'], device=-1), second=dict(mode=nnedi3Mode['mode'], device=-1))
-        else:
-            nnedi3Mode = dict(first=dict(mode='cpu', device=-1), second=dict(mode='cpu', device=-1))
-    elif not all (k in nnedi3Mode['first'] for k in ('mode', 'device')):
-        if 'device' not in nnedi3Mode['first']:
-            nnedi3Mode['first']['device'] = -1
-        elif 'mode' not in nnedi3Mode['first']:
-            raise ValueError('insaneAA: first instance of nnedi3Mode lacks "mode" key')
-    elif not all (k in nnedi3Mode['second'] for k in ('mode', 'device')):
-        if 'device' not in nnedi3Mode['first']:
-            nnedi3Mode['second']['device'] = -1
-        elif 'mode' not in nnedi3Mode['second']:
-            raise ValueError('insaneAA: second instance of nnedi3Mode lacks "mode" key')
+Prerequisites:
+    eedi3/eedi3cl: https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3
+    nnedi3: https://github.com/dubhater/vapoursynth-nnedi3
+    nnedi3cl: https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL
+    descale: https://github.com/Irrational-Encoding-Wizardry/vapoursynth-descale
+    havsfunc: https://github.com/HomeOfVapourSynthEvolution/havsfunc
 
-    w = c.width
-    h = c.height
-    gray_c = mvf.GetPlane(c, 0)
-    descale_clp = revert_upscale(gray_c, descale_str, kernel, descale_h, descale_w)
-    upscale = rescale(descale_clp, eedi3Mode, nnedi3Mode, w, h, pscrn, alpha, beta, gamma)
-    if outputMode is 1:
+Basic usage:
+    import insaneAA
+    insaneAA.insaneAA(clip, externalAA=None, externalMask=None, fasterAA=False, eedi3Mode='cpu', eedi3Device=-1, nnedi3Mode='nnedi3', nnedi3Device=-1, descale_str=0.3, kernel='bilinear', descale_h=720, descale_w=None, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, nrad=2, mdis=20, opt=(0,0), outputMode=0, inputMode=0)
+        externalAA: if clip is passed, will use it intead of making rescale.
+        externalMask: pass external lines mask. Non-clip input will be ignored.
+        fasterAA: slightly different upscaling routine, proposed by ZASTIN. Sometimes might produce worse results. But indeed it's faster, yeah.
+        eedi3Mode: string with mode or tuple with two strings representing modes for first and second calls of eedi3.
+        eedi3Device: integer or tuple with two integers representing device IDs for first and second calls of eedi3.
+        nnedi3Mode: string with mode or tuple with two strings representing modes for first and second calls of nnedi3.
+        nnedi3Device: integer or tuple with two integers representing device IDs for first and second calls of nnedi3.
+        descale_str: strength of mixing between descaled clip and Spline36 clip (for AA purposes). More strengh means more haloes, keep that in mind.
+        kernel: descaling kernel. Use getnative.py for determining native resolution and try various kernels to find the best suitable.
+        descale_height/descale_width: once you know native resolution, set descale_height. descale_width is almost useless, script will guess descaling width automatically. But you can set it, lol.
+        pscrn: nnedi3's prescreener for faster operation.
+        alpha: eedi3's alpha.
+        beta: eedi3's beta.
+        gamma: eedi3's gamma.
+        nrad: eedi3's nrad.
+        mdis: eedi3's mdis.
+        eedi3Opt: Controls eedi3 opt related options. You can pass single value or tuple with two values for separated opt on the instances. Passed value should be int type.
+        nnedi3Opt: Controls nnedi3 opt related options. You can pass single value or tuple with two values for separated opt on the instances. znedi3 expects string, classic nnedi3 - int, nnedi3cl ignores passed value. 
+        outputMode: 1 - only rescale (GRAY), 2 - linemasked rescale (GRAY), 0 - linemasked rescale + untouched colors. This option useful for, say, processing all clip into lossless file and masking high resolution details later or for importing filtered luma into avisynth.
+        inputMode: 1 - expect outputMode=1 like GRAY csp upscale. Anything else will skip applying lines mask.
+    Please do something with FullHD details! At least mask them or somehow exclude from processing.
+
+Changelog:
+    version 0.6
+        New: parameters eedi3Opt/nnedi3Opt. Controls eedi3/nnedi3 opt related options.
+        New: expose nrad/mdis parameters from eedi3. It's possible to improve speed with nearly the same results (say, use mdis=12 for 720p rescales).
+        New: parameter 'externalMask'. Overrides built-in mask clip.
+        Change: eedi3/nnedi3 mode related configuration. Now you can pass single 'cpu' or 'opencl' for eedi3Mode and single 'nnedi3', 'znedi3' or 'opencl' for nnedi3Mode. 
+                If you need to use non-default device, set eedi3Device and nnedi3Device with proper values. 
+                If you have 2 GPUs or wanna run 1st instance on GPU and second on CPU (or vice versa), just pass tuple with 2 values.
+        Change: parameter 'ref' is now 'externalAA'.
+        Change: parameter 'fasterAA' is now False by default.
+    version 0.5
+        New: inputMode. If set to 1, line masking on ref will be performed.
+    version 0.4
+        New: ref paramenter. You can supply processed clip there, it will be used instead of calculating new rescale.
+        Speed-ups for AA processing by ZASTIN.
+    version 0.3
+        Major change in eedi3/nnedi3 options: use dict(first=dict(mode='cpu', device=-1), second=dict(mode='cpu', device=-1)) for eedi3Mode/nnedi3Mode. More in usage.
+        Now you can pick znedi3 for sclip. The fastest nnedi3 option on my observation, but in complex scripts it might be better to use opencl nnedi3 for saving cpu cycles for other stuff.
+    version 0.2
+        Turn off OpenCL plugins by default.
+        Split eedi3Cl for every eedi3 call, may improve performance on cheap GPUs.
+    version 0.1
+        Initial release.
+"""
+
+def insaneAA(clip, externalAA=None, externalMask=None, fasterAA=False, eedi3Mode='cpu', eedi3Device=-1, eedi3Opt=0, nnedi3Mode='nnedi3', nnedi3Device=-1, nnedi3Opt=0, descale_str=0.3, kernel='bilinear', descale_width=None, descale_height=720, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, nrad=2, mdis=20, outputMode=0, inputMode=0):
+    if not isinstance(clip, VideoNode):
+        raise TypeError('insaneAA: this is not a clip.')
+    if clip.format.color_family != YUV:
+        raise TypeError('insaneAA: clip must be YUV colorspace.')
+    width = clip.width
+    height = clip.height
+    gray_clip = core.std.ShufflePlanes(clip, 0, GRAY)
+    if not isinstance(externalAA, VideoNode):
+        descale_clip = revert_upscale(gray_clip, descale_str, kernel, descale_width, descale_height)
+        upscale = rescale(descale_clip, fasterAA, eedi3Mode, eedi3Device, nnedi3Mode, nnedi3Device, width, height, pscrn, alpha, beta, gamma, nrad, mdis, eedi3Opt, nnedi3Opt)
+    else:
+        upscale = externalAA
+    if outputMode == 1:
         return upscale
+    if not isinstance(externalAA, VideoNode) or inputMode == 1:
+        if  not isinstance(externalMask, VideoNode):
+            linemask = core.std.Sobel(gray_clip).std.Expr("x 2 *").std.Maximum()
+        else:
+            linemask = externalMask
+        aa_clip = core.std.MaskedMerge(gray_clip, upscale, linemask)
+    else:
+        aa_clip = externalAA
+    if outputMode == 2:
+        return aa_clip
+    return core.std.ShufflePlanes([aa_clip, clip], planes=[0, 1, 2], colorfamily=clip.format.color_family)
 
-    linemask = core.std.Maximum(core.std.Expr(core.std.Sobel(gray_c), "x 2 *"))
-    merged_aa = core.std.MaskedMerge(gray_c, upscale, linemask)
-    if outputMode is 2:
-        return merged_aa
+def revert_upscale(clip, descale_str=0.3, kernel='bilinear', descale_width=None, descale_height=720):
+    width = clip.width
+    height = clip.height
+    descale_width = m4((width * descale_height) / height) if descale_width == None else descale_width
+    descale_natural = descale.Descale(clip, descale_width, descale_height, kernel=kernel)
+    descale_aa = core.resize.Spline36(clip, descale_width, descale_height)
+    return core.std.Merge(clipb=descale_natural, clipa=descale_aa, weight=descale_str)
 
-    return core.std.ShufflePlanes([merged_aa, mvf.GetPlane(c, 1), mvf.GetPlane(c, 2)], planes=[0, 0, 0], colorfamily=c.format.color_family)
-
-def revert_upscale(c, descale_str=0.3, kernel='bilinear', descale_h=720, descale_w=None):
-    w = c.width
-    h = c.height
-    descale_w = haf.m4((w * descale_h) / h) if descale_w == None else descale_w
-    descale_natural = dsc.Descale(c, descale_w, descale_h, kernel=kernel)
-    descale_aa = core.resize.Spline36(c, descale_w, descale_h)
-    descaled = core.std.Merge(clipb=descale_natural, clipa=descale_aa, weight=descale_str)
-    return descaled
-
-def rescale(c, eedi3Mode=None, nnedi3Mode=None, dx=None, dy=None, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0):
-    ux = c.width * 2
-    uy = c.height * 2
-
+def rescale(clip, fasterAA=False, eedi3Mode='cpu', eedi3Device=-1, nnedi3Mode='nnedi3', nnedi3Device=-1, dx=None, dy=None, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, nrad=2, mdis=20, eedi3Opt=0, nnedi3Opt=0):
+    ux = clip.width * 2
+    uy = clip.height * 2
     if dx is None:
-        raise ValueError('insaneAA: rescale lacks "dx" parameter')
+        raise ValueError('insaneAA: rescale lacks "dx" parameter.')
     if dy is None:
-        raise ValueError('insaneAA: rescale lacks "dy" parameter')
-
-    c = eedi3_instance(c, eedi3Mode['first'], nnedi3Mode['first'], pscrn, alpha, beta, gamma)
-    c = core.std.Transpose(clip=c)
-    c = eedi3_instance(c, eedi3Mode['second'], nnedi3Mode['second'], pscrn, alpha, beta, gamma)
-    c = core.std.Transpose(clip=c)
-    return core.resize.Spline36(c, dx, dy, src_left=-0.5, src_top=-0.5, src_width=ux, src_height=uy)
-
-def eedi3_instance(c, eedi3Mode=None, nnedi3Mode=None, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0):
-    if 'mode' not in eedi3Mode:
-        eedi3Mode['mode'] = 'cpu'
-
-    if 'device' not in eedi3Mode:
-        eedi3Mode['device'] = -1
-
-    if 'mode' not in nnedi3Mode:
-        nnedi3Mode['mode'] = 'cpu'
-
-    if 'device' not in nnedi3Mode:
-        nnedi3Mode['device'] = -1
-
-    if eedi3Mode['mode'] == 'opencl':
-        return core.eedi3m.EEDI3CL(c, field=1, dh=True, alpha=alpha, beta=beta, gamma=gamma, vcheck=3, sclip=nnedi3_superclip(c, nnedi3Mode, pscrn), device=eedi3Mode['device'])
+        raise ValueError('insaneAA: rescale lacks "dy" parameter.')
+    eedi3Mode1,       eedi3Mode2 = validateInput(eedi3Mode,        str, 'insaneAA: eedi3Mode should be a string with valid mode or tuple with 2 strings providing valid modes.')
+    nnedi3Mode1,     nnedi3Mode2 = validateInput(nnedi3Mode,       str, 'insaneAA: nnedi3Mode should be a string with valid mode or tuple with 2 strings providing valid modes.')
+    eedi3Device1,   eedi3Device2 = validateInput(eedi3Device,      int, 'insaneAA: eedi3Device should be integer with valid device ID or tuple with 2 integers providing valid device IDs.')
+    nnedi3Device1, nnedi3Device2 = validateInput(nnedi3Device,     int, 'insaneAA: nnedi3Device should be integer with valid device ID or tuple with 2 integers providing valid device IDs.')
+    eedi3Opt1,         eedi3Opt2 = validateInput(eedi3Opt,         int, 'insaneAA: eedi3Opt should be integer with valid eedi3/eedi3cl opt value or tuple with 2 integers providing valid values.')
+    nnedi3Opt1,       nnedi3Opt2 = validateInput(nnedi3Opt, (int, str), 'insaneAA: nnedi3Opt should be integer with valid eedi3/eedi3cl opt value or tuple with 2 integers providing valid values.')
+    if fasterAA:
+        clip = core.std.Transpose(clip)
+        clip = eedi3_instance(clip, eedi3Mode1, eedi3Device1, nnedi3Mode1, nnedi3Device1, pscrn, alpha, beta, gamma, nrad, mdis, eedi3Opt1, nnedi3Opt1)
+        clip = core.resize.Spline36(clip, height=dx, src_top=-0.5, src_height=ux)
+        clip = core.std.Transpose(clip)
+        clip = eedi3_instance(clip, eedi3Mode2, eedi3Device2, nnedi3Mode2, nnedi3Device2, pscrn, alpha, beta, gamma, nrad, mdis, eedi3Opt2, nnedi3Opt2)
+        return core.resize.Spline36(clip, height=dy, src_top=-0.5, src_height=uy)
     else:
-        return core.eedi3m.EEDI3(c, field=1, dh=True, alpha=alpha, beta=beta, gamma=gamma, vcheck=3, sclip=nnedi3_superclip(c, nnedi3Mode, pscrn))
+        clip = eedi3_instance(clip, eedi3Mode1, eedi3Device1, nnedi3Mode1, nnedi3Device1, pscrn, alpha, beta, gamma, nrad, mdis, eedi3Opt1, nnedi3Opt1)
+        clip = core.std.Transpose(clip)
+        clip = eedi3_instance(clip, eedi3Mode2, eedi3Device2, nnedi3Mode2, nnedi3Device2, pscrn, alpha, beta, gamma, nrad, mdis, eedi3Opt2, nnedi3Opt2)
+        clip = core.std.Transpose(clip)
+        return core.resize.Spline36(clip, dx, dy, src_left=-0.5, src_top=-0.5, src_width=ux, src_height=uy)
 
-def nnedi3_superclip(c, nnedi3Mode=None, pscrn=1):
-    if nnedi3Mode['mode'] == 'opencl':
-        return core.nnedi3cl.NNEDI3CL(c, field=1, dh=True, nsize=0, nns=4, pscrn=pscrn, device=nnedi3Mode['device'])
-    elif nnedi3Mode['mode'] == 'znedi3':
-        return core.znedi3.nnedi3(c, field=1, dh=True, nsize=0, nns=4, pscrn=pscrn)
+def eedi3_instance(c, eedi3Mode='cpu', eedi3Device=-1, nnedi3Mode='nnedi3', nnedi3Device=-1, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, nrad=2, mdis=20, eedi3Opt=0, nnedi3Opt=0):
+    if eedi3Mode == 'opencl':
+        return core.eedi3m.EEDI3CL(c, field=1, dh=True, alpha=alpha, beta=beta, gamma=gamma, vcheck=3, nrad=nrad, mdis=mdis, sclip=nnedi3_superclip(c, nnedi3Mode, nnedi3Device, pscrn, nnedi3Opt), device=nnedi3Device, opt=eedi3Opt)
     else:
-        return core.nnedi3.nnedi3(c, field=1, dh=True, nsize=0, nns=4, pscrn=pscrn)
+        return core.eedi3m.EEDI3(c, field=1, dh=True, alpha=alpha, beta=beta, gamma=gamma, vcheck=3, nrad=nrad, mdis=mdis, sclip=nnedi3_superclip(c, nnedi3Mode, nnedi3Device, pscrn, nnedi3Opt), opt=eedi3Opt)
+
+def nnedi3_superclip(c, nnedi3Mode='nnedi3', nnedi3Device=-1, pscrn=1, opt=0):
+    if nnedi3Mode == 'opencl':
+        return core.nnedi3cl.NNEDI3CL(c, field=1, dh=True, nsize=0, nns=4, pscrn=pscrn, device=nnedi3Device)
+    elif nnedi3Mode == 'znedi3':
+        if opt == 0:
+            _opt = True
+            _x_cpu = ""
+        elif opt == 1:
+            _opt = False
+            _x_cpu = ""
+        else:
+            _opt = True
+            _x_cpu = str(opt)
+        return core.znedi3.nnedi3(c, field=1, dh=True, nsize=0, nns=4, pscrn=pscrn, opt=_opt, x_cpu=_x_cpu)
+    else:
+        return core.nnedi3.nnedi3(c, field=1, dh=True, nsize=0, nns=4, pscrn=pscrn, opt=opt)
+
+def validateInput(var, varType, errorString):
+    if isinstance(var, varType):
+        return var, var
+    elif isinstance(var, tuple):
+        if len(var) == 2 and isinstance(var[0], varType) and isinstance(var[1], varType):
+            return var
+        else:
+            raise ValueError(errorString)
+    else:
+        raise ValueError(errorString)
+
+def m4(x):
+    return 16 if x < 16 else int(x // 4 + 0.5) * 4
