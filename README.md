@@ -21,7 +21,7 @@ Use this script to fix ugly upscaled anime BDs.
   - [mvsfunc](https://github.com/HomeOfVapourSynthEvolution/mvsfunc).
  
 # Basic usage:
-```
+```python3
 import insaneAA
 insaneAA(clip, externalAA=None, externalMask=None, fasterAA=False, eedi3Mode='cpu', eedi3Device=-1, eedi3Opt=0, nnedi3Mode='nnedi3', nnedi3Device=-1, nnedi3Opt=0, descale_str=0.3, kernel='bilinear', descale_width=None, descale_height=720, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, nrad=2, mdis=20, outputMode=0, inputMode=0)
 ```
