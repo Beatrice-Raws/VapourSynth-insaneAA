@@ -1,10 +1,10 @@
 from vapoursynth import core, VideoNode, GRAY, YUV
 import descale
 
-__version__ = 0.6
+__version__ = 0.7
 
 """
-InsaneAA Anti-Aliasing Script (VS port) v0.6 (25.10.2018)
+InsaneAA Anti-Aliasing Script (VS port) v0.7 (24.11.2018)
 
 Original idea by tonik & tophf, edited and ported by DJATOM.
 Use this script to fix ugly upscaled anime BDs.
@@ -13,7 +13,7 @@ Processing chain:
     1) extract luma from clip;
     2) apply Descale to it;
     3) resize luma with Spline36 for smooth edges;
-    4) merge "smooth" clip with Descale clip according to descale_str;
+    4) merge "smooth" clip with Descale clip according to descale_strength;
     5) re-upscale it back to 1080p (or clip's original resolution) using eedi3+nnedi3 method;
     6) merge rescaled clip with source clip using lines mask. This should prevent noise and textures distortion;
     7) combine merged clip with color planes. 
@@ -27,7 +27,7 @@ Prerequisites:
 
 Basic usage:
     import insaneAA
-    insaneAA.insaneAA(clip, externalAA=None, externalMask=None, fasterAA=False, eedi3Mode='cpu', eedi3Device=-1, nnedi3Mode='nnedi3', nnedi3Device=-1, descale_str=0.3, kernel='bilinear', descale_h=720, descale_w=None, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, nrad=2, mdis=20, opt=(0,0), outputMode=0, inputMode=0)
+    insaneAA.insaneAA(clip, externalAA=None, externalMask=None, fasterAA=False, eedi3Mode='cpu', eedi3Device=-1, eedi3Opt=0, nnedi3Mode='nnedi3', nnedi3Device=-1, nnedi3Opt=0, descale_strength=0.3, kernel='bilinear', bicubic_b=1/3, bicubic_c=1/3, descale_width=None, descale_height=720, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, nrad=2, mdis=20, outputMode=0, inputMode=0)
         externalAA: if clip is passed, will use it intead of making rescale.
         externalMask: pass external lines mask. Non-clip input will be ignored.
         fasterAA: slightly different upscaling routine, proposed by ZASTIN. Sometimes might produce worse results. But indeed it's faster, yeah.
@@ -37,8 +37,9 @@ Basic usage:
         nnedi3Mode: string with mode or tuple with two strings representing modes for first and second calls of nnedi3.
         nnedi3Device: integer or tuple with two integers representing device IDs for first and second calls of nnedi3.
         nnedi3Opt: Controls nnedi3 opt related options. You can pass single value or tuple with two values for separated opt on the instances. znedi3 expects string, classic nnedi3 - int (0 - use opt, 1 - disable, use C functions), nnedi3cl ignores passed value. 
-        descale_str: strength of mixing between descaled clip and Spline36 clip (for AA purposes). More strengh means more haloes, keep that in mind.
+        descale_strength: strength of mixing between descaled clip and Spline36 clip (for AA purposes). More strengh means more haloes, keep that in mind.
         kernel: descaling kernel. Use getnative.py for determining native resolution and try various kernels to find the best suitable.
+        bicubic_b/bicubic_c: bicubic options for Descale.
         descale_height/descale_width: once you know native resolution, set descale_height. descale_width is almost useless, script will guess descaling width automatically. But you can set it, lol.
         pscrn: nnedi3's prescreener for faster operation.
         alpha: eedi3's alpha.
@@ -51,6 +52,9 @@ Basic usage:
     Please do something with FullHD details! At least mask them or somehow exclude from processing.
 
 Changelog:
+    version 0.7
+        New: tunable bicubic_b and bicubic_c options for bicubic descaling.
+        Change: descale_str -> descale_strength.
     version 0.6b
         Fix: nnedi3 mode used slow C routines by default (behaviour differs from classic avisynth option).
     version 0.6
@@ -77,7 +81,7 @@ Changelog:
         Initial release.
 """
 
-def insaneAA(clip, externalAA=None, externalMask=None, fasterAA=False, eedi3Mode='cpu', eedi3Device=-1, eedi3Opt=0, nnedi3Mode='nnedi3', nnedi3Device=-1, nnedi3Opt=0, descale_str=0.3, kernel='bilinear', descale_width=None, descale_height=720, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, nrad=2, mdis=20, outputMode=0, inputMode=0):
+def insaneAA(clip, externalAA=None, externalMask=None, fasterAA=False, eedi3Mode='cpu', eedi3Device=-1, eedi3Opt=0, nnedi3Mode='nnedi3', nnedi3Device=-1, nnedi3Opt=0, descale_strength=0.3, kernel='bilinear', bicubic_b=1/3, bicubic_c=1/3, descale_width=None, descale_height=720, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, nrad=2, mdis=20, outputMode=0, inputMode=0):
     if not isinstance(clip, VideoNode):
         raise TypeError('insaneAA: this is not a clip.')
     if clip.format.color_family != YUV:
@@ -86,7 +90,7 @@ def insaneAA(clip, externalAA=None, externalMask=None, fasterAA=False, eedi3Mode
     height = clip.height
     gray_clip = core.std.ShufflePlanes(clip, 0, GRAY)
     if not isinstance(externalAA, VideoNode):
-        descale_clip = revert_upscale(gray_clip, descale_str, kernel, descale_width, descale_height)
+        descale_clip = revert_upscale(gray_clip, descale_strength, kernel, descale_width, descale_height, bicubic_b, bicubic_c)
         upscale = rescale(descale_clip, fasterAA, eedi3Mode, eedi3Device, eedi3Opt, nnedi3Mode, nnedi3Device, nnedi3Opt, width, height, pscrn, alpha, beta, gamma, nrad, mdis)
     else:
         upscale = externalAA
@@ -104,13 +108,13 @@ def insaneAA(clip, externalAA=None, externalMask=None, fasterAA=False, eedi3Mode
         return aa_clip
     return core.std.ShufflePlanes([aa_clip, clip], planes=[0, 1, 2], colorfamily=clip.format.color_family)
 
-def revert_upscale(clip, descale_str=0.3, kernel='bilinear', descale_width=None, descale_height=720):
+def revert_upscale(clip, descale_strength=0.3, kernel='bilinear', descale_width=None, descale_height=720, bicubic_b=1/3, bicubic_c=1/3):
     width = clip.width
     height = clip.height
     descale_width = m4((width * descale_height) / height) if descale_width == None else descale_width
-    descale_natural = descale.Descale(clip, descale_width, descale_height, kernel=kernel)
-    descale_aa = core.resize.Spline36(clip, descale_width, descale_height)
-    return core.std.Merge(clipb=descale_natural, clipa=descale_aa, weight=descale_str)
+    descale_natural = descale.Descale(clip, descale_width, descale_height, kernel=kernel, b=bicubic_b, c=bicubic_c)
+    descale_smooth = core.resize.Spline36(clip, descale_width, descale_height)
+    return core.std.Expr([descale_natural, descale_smooth], 'x {strength} * y 1 {strength} - * +'.format(strength=descale_strength))
 
 def rescale(clip, fasterAA=False, eedi3Mode='cpu', eedi3Device=-1, eedi3Opt=0, nnedi3Mode='nnedi3', nnedi3Device=-1, nnedi3Opt=0, dx=None, dy=None, pscrn=1, alpha=0.2, beta=0.25, gamma=1000.0, nrad=2, mdis=20):
     ux = clip.width * 2
