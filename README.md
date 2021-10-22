@@ -18,6 +18,7 @@ Use this script to fix ugly upscaled anime BDs.
   - [znedi3](https://github.com/sekrit-twc/znedi3).
   - [nnedi3cl](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL).
   - [descale](https://github.com/Irrational-Encoding-Wizardry/vapoursynth-descale).
+  - [finedehalo](https://gist.github.com/SX91/bcd427ec0fa8fdf7c45433917521bac4).
  
 # Basic usage:
 ```python3
